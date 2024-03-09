@@ -28,10 +28,10 @@ class Dataset():
         self.mesh_file = sorted(folder.glob(mesh_glob_key), 
             key=lambda x: len(x.stem))[0]
 
-    def __call__(self, idx, array='u'):
-        """ Return velocity at timestep index idx. """
+    def __call__(self, u_file, array='u'):
+        """ Return velocity in u_file. """
         if array in ['u', 'p']:
-            h5_file = self.up_files[idx]
+            h5_file = u_file
             with h5py.File(h5_file, 'r') as hf:
                 val = np.array(hf['Solution'][array])
         
@@ -320,10 +320,10 @@ def generate_q(grads, gradfile):
 def compute_nodal_gradients(u_files, dd, shpx, x, invTJ_at_quads, A_flat, P0, patches, patch_pts, P2, print_wss, print_q):
     cells = dd.mesh.cells.reshape(-1,5)[:,1:5] #cells are preceeded by the # of verts 
     #loop through each u file:
-    for idx in range(len(u_files)):
+    for idx, uf in enumerate(u_files):
         print('Computing nodal gradients for file {} of {} on processor {}'.format(idx+1, len(u_files),x))
         #have to loop through each cell to get the gradients at all quadrature points
-        u = dd(idx)
+        u = dd(uf)
         if not Path('quad_grads.h5').exists():
             print('Computing gradients at the quadrature points')
             start1 = time.time()
@@ -344,7 +344,7 @@ def compute_nodal_gradients(u_files, dd, shpx, x, invTJ_at_quads, A_flat, P0, pa
         print('Finished least squares in {} min!'.format(round((end2-start2)/60)))
         #take arithmetic average of the patches for each coindicent node
         gradient=grad_totals/grad_instances
-        t = dd._get_ts(u_files[idx])
+        t = dd._get_ts(uf)
         print('Generating gradient file...')
         with h5py.File('{}_gradients_{}.h5'.format(case_name, t), 'w') as gradfile:
             gradfile.create_dataset(name='gradient', data=gradient)
