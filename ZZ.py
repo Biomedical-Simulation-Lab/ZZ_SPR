@@ -475,7 +475,7 @@ if __name__=="__main__":
     print('Computations complete in {} min'.format(round((end_c-start_c)/60)))
     print('Total required time was {} min'.format(round((end_c-start)/60)))
     
-    compute_nodal_gradients([dd.up_files[x]], dd, shpx, x, invTJ_at_quads, A_flat0, P0, patches, patch_pts, P2, print_wss, print_q)
+    #compute_nodal_gradients([dd.up_files[x]], dd, shpx, x, invTJ_at_quads, A_flat0, P0, patches, patch_pts, P2, print_wss, print_q)
 
 """
 SPR Steps:
