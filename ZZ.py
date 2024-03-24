@@ -12,6 +12,10 @@ import multiprocess as mp
 import time
 import scipy
 import pandas as pd
+from numba import njit
+
+nprocs = 80
+nprocs1 = 79
 
 class Dataset():
     """ Load BSL-specific data and common ops. 
@@ -194,6 +198,7 @@ def compute_phys_quads(npts, shp):
     pts = np.matmul(shp,npts) #4quadsx4nodes x 4nodes, 3 coords
     return pts
 
+@njit
 def jacobian(npts, shpx): #npts are the physical nodal coordinates of the cell 4x[coord1, coord2,coord3]
     #Transposed Jacobian of the cell evaluated at the quad points (end up with quad points(4)xderivdirections(3)x3components array)
     J = np.zeros((4,3,3))
@@ -203,6 +208,7 @@ def jacobian(npts, shpx): #npts are the physical nodal coordinates of the cell 4
         invTJ[q,:,:] = np.linalg.inv(J[q]) #this is just the inverse Jacobian
     return invTJ #4quads x 3physdx x 3refdx
 
+@njit
 def compute_derivs_at_quads(u, node_pts, shpx):
     grad = np.zeros((4,3,3))
     #with linalg
@@ -210,6 +216,7 @@ def compute_derivs_at_quads(u, node_pts, shpx):
         grad[q,:,:]=np.matmul(shpx,u[node_pts]) #3refderivsx4nodes 4nodesx3coords  = 3 refderivsx3 coords 
     return grad #quad pointsx3 refderivsx3 coords
 
+@njit
 def compute_grads_quads(u, shpx, cells, quad_grads, invTJ_at_quads, x):
     print('Computing derivatives at physical quadrature points')
     for c in range(len(cells)):
@@ -222,7 +229,7 @@ def compute_grads_quads(u, shpx, cells, quad_grads, invTJ_at_quads, x):
         #    print(quad_grads[c])
         if c%100000==0 and x==0:
             print('{}%'.format(round(100*c/len(cells))))
-
+@njit
 def least_squares(dd, cells,quad_grads, A_flat, P0, patches, patch_pts, P2, x1):
     #need array to store totals of gradients
     grad_totals=np.zeros((len(dd.mesh.points),9))
@@ -316,7 +323,7 @@ def generate_q(grads, gradfile):
     Q=0.5*(A**2 - S**2)
     gradfile.create_dataset(name='q_criterion', data=Q)
 
-
+@njit
 def compute_nodal_gradients(u_files, dd, shpx, x, invTJ_at_quads, A_flat, P0, patches, patch_pts, P2, print_wss, print_q):
     cells = dd.mesh.cells.reshape(-1,5)[:,1:5] #cells are preceeded by the # of verts 
     #loop through each u file:
@@ -326,7 +333,7 @@ def compute_nodal_gradients(u_files, dd, shpx, x, invTJ_at_quads, A_flat, P0, pa
         u = dd(uf)
         quad_grads = np.zeros((len(cells),4,3,3))
         compute_grads_quads(u, shpx, cells, quad_grads, invTJ_at_quads,x)
-        '''
+        ''' Commented this because it is for serial implementation only
         if not Path('quad_grads.h5').exists():
             print('Computing gradients at the quadrature points')
             start1 = time.time()
@@ -434,14 +441,14 @@ if __name__=="__main__":
         s = time.time()
         A_f0=[0]*len(cells)*16
         A_flat = mp.Array('d',A_f0)
-        cells_divided = math.floor(len(cells)/39)
-        cells_remain = len(cells)-39*cells_divided
+        cells_divided = math.floor(len(cells)/nprocs1)
+        cells_remain = len(cells)-nprocs1*cells_divided
         #print(cells_divided,cells_remain, len(cells))
         cells_parallel = []
-        for i in range(39):
+        for i in range(nprocs1):
             cells_parallel.append(range(i*cells_divided,i*cells_divided+cells_divided))
-        cells_parallel.append(range(39*cells_divided,39*cells_divided+cells_remain))
-        processes = [mp.Process(target= precompute_A, args=(cells_parallel[x], P0, A_flat)) for x in range(40)]
+        cells_parallel.append(range(nprocs1*cells_divided,nprocs1*cells_divided+cells_remain))
+        processes = [mp.Process(target= precompute_A, args=(cells_parallel[x], P0, A_flat)) for x in range(nprocs)]
         # Run processes
         for p in processes:
             p.start()
@@ -460,12 +467,12 @@ if __name__=="__main__":
     #this is where we need to divide up the files:    
     print('Beginning computations...')
     start_c = time.time()
-    num = math.floor(len(dd.up_files)/39)
+    num = math.floor(len(dd.up_files)/nprocs1)
     up_files = []
-    for i in range(39):
+    for i in range(nprocs1):
         up_files.append(dd.up_files[i*num:(i+1)*num-1])
-    up_files.append(dd.up_files[39*num:-1]) #the remaining list of files
-    processes = [mp.Process(target=compute_nodal_gradients, args=(up_files[x], dd, shpx, x, invTJ_at_quads, A_flat0, P0, patches, patch_pts, P2, print_wss, print_q)) for x in range(40)]
+    up_files.append(dd.up_files[nprocs1*num:-1]) #the remaining list of files
+    processes = [mp.Process(target=compute_nodal_gradients, args=(up_files[x], dd, shpx, x, invTJ_at_quads, A_flat0, P0, patches, patch_pts, P2, print_wss, print_q)) for x in range(nprocs)]
     # Run processes
     for p in processes:
         p.start()
