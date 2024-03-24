@@ -275,7 +275,7 @@ def least_squares(dd, cells,quad_grads, A_flat, P0, patches, patch_pts, P2, x1):
         t12 += t11-t10
         if c%100000==0 and x1==0:
             print('{}%'.format(round(100*c/len(cells))))
-    print ('Allocating sparse matrix took {}s, loading matrices took {}s, least squares took {}s, and reconstructing gradients took {}s'.format(t3,t6,t9,t12))
+    #print ('Allocating sparse matrix took {}s, loading matrices took {}s, least squares took {}s, and reconstructing gradients took {}s'.format(t3,t6,t9,t12))
     return grad_totals, grad_instances
 
 def precompute_A(cells_parallel, P0, A_flat): #can store instead of doing every time
@@ -324,6 +324,9 @@ def compute_nodal_gradients(u_files, dd, shpx, x, invTJ_at_quads, A_flat, P0, pa
         print('Computing nodal gradients for file {} of {} on processor {}'.format(idx+1, len(u_files),x))
         #have to loop through each cell to get the gradients at all quadrature points
         u = dd(uf)
+        quad_grads = np.zeros((len(cells),4,3,3))
+        compute_grads_quads(u, shpx, cells, quad_grads, invTJ_at_quads,x)
+        '''
         if not Path('quad_grads.h5').exists():
             print('Computing gradients at the quadrature points')
             start1 = time.time()
@@ -336,16 +339,17 @@ def compute_nodal_gradients(u_files, dd, shpx, x, invTJ_at_quads, A_flat, P0, pa
         else:
             file = h5py.File('quad_grads.h5', 'r')
             quad_grads = np.array(file['quad_grads']) 
+        '''
         #Now that we have the gradients at the quadrature points, do least squares to get fit
-        print('Beginning least squares...')
-        start2 = time.time()
+        #print('Beginning least squares...')
+        #start2 = time.time()
         grad_totals, grad_instances = least_squares(dd, cells, quad_grads, A_flat, P0, patches, patch_pts, P2,x)
-        end2 = time.time()
-        print('Finished least squares in {} min!'.format(round((end2-start2)/60)))
+        #end2 = time.time()
+        #print('Finished least squares in {} min!'.format(round((end2-start2)/60)))
         #take arithmetic average of the patches for each coindicent node
         gradient=grad_totals/grad_instances
         t = dd._get_ts(uf)
-        print('Generating gradient file...')
+        #print('Generating gradient file...')
         with h5py.File('{}_gradients_{}.h5'.format(case_name, t), 'w') as gradfile:
             gradfile.create_dataset(name='gradient', data=gradient)
             gradfile.create_dataset(name='grad_totals', data=grad_totals)
