@@ -91,7 +91,6 @@ class Dataset():
             mask = mesh.cell_data['CellEntityIds'] == 1
             self.surf = mesh.extract_cells(mask)
             self.surf = pv.PolyData(self.surf.points*(10**-3), faces=self.surf.cells)
-            self.surf.point_data['vtkOriginalPointIds'] = mesh.point_data['vtkOriginalPointIds'][mask]
         return self
 
 def partition_mesh(mesh, n_partitions, generate_global_id=False, as_composite=False): #not used
@@ -143,7 +142,7 @@ def get_neighbours(case_name, mesh=None, neigh0=None, shp=None, shpx=None, g_pts
     Get all neighbouring elements
     """
     if not Path('./neighbour_info_{}.h5'.format(case_name)).exists():
-        elems=mesh.cells.reshape(-1,5)[:,1:5]
+        elems=mesh.cells.reshape((-1,5))[:,1:5]
         for endx in range(len(elems)):
             cellid = mesh.cell_data['vtkOriginalCellIds'][endx] #check this vtkGlobalCellIds
             nb0 = cell_neighbors(elems,mesh, endx) #these are the neighbours in the submesh
@@ -182,9 +181,9 @@ def quadrature(): #four point rule
     return pts, weights
 
 def monomial(x): #x is a 4x3 array of evaluation points
-    x1=x[:,0].reshape(4,1)
-    x2=x[:,1].reshape(4,1)
-    x3=x[:,2].reshape(4,1)
+    x1=x[:,0].reshape((4,1))
+    x2=x[:,1].reshape((4,1))
+    x3=x[:,2].reshape((4,1))
     m = np.concatenate((np.ones((4,1))-x1-x2-x3,x1,x2,x3), axis=1)
     m_x = np.concatenate((-np.ones((3,1)), np.array([[1,0,0]]).T, np.array([[0,1,0]]).T, np.array([[0,0,1]]).T),axis=1) #the same for each quad pt (P1 elems)
     return m, m_x #4x4 (quad pointsxnode points) and 3x4 arrays (refderivsxnode points)
@@ -251,7 +250,7 @@ def least_squares(dd, cells,quad_grads, A_flat, P0, patches, patch_pts, P2, x1):
         for i, ci in enumerate(range(c,c+skip)):
             #get the quad grad values of the patch
             grads_patch = quad_grads[patches[ci]] #list of gradients at each quad point in the patch (3 coordsx3derivs)
-            grads = np.concatenate((quad_grads[ci].reshape(-1,9), grads_patch.reshape(-1,9)), axis=0) # include list of gradients at each quad point in cell quad_ptsx9
+            grads = np.concatenate((quad_grads[ci].reshape((-1,9)), grads_patch.reshape((-1,9))), axis=0) # include list of gradients at each quad point in cell quad_ptsx9
             #P[:,g]=[1,x,y,z]^T
             b_fill = P0[ci]@grads #4monomialsxnpts x npts*9comps = 4monomialsx9 components
             #Construct the system
@@ -321,7 +320,7 @@ def generate_q(grads, gradfile):
     gradfile.create_dataset(name='q_criterion', data=Q)
 
 def compute_nodal_gradients(u_files, dd, shpx, x, invTJ_at_quads, A_flat, P0, patches, patch_pts, P2, print_wss, print_q):
-    cells = dd.mesh.cells.reshape(-1,5)[:,1:5] #cells are preceeded by the # of verts 
+    cells = dd.mesh.cells.reshape((-1,5))[:,1:5] #cells are preceeded by the # of verts 
     #loop through each u file:
     for idx, uf in enumerate(u_files):
         print('Computing nodal gradients for file {} of {} on processor {}'.format(idx+1, len(u_files),x))
@@ -377,11 +376,11 @@ if __name__=="__main__":
     seg_name = 'PTSeg'+ splits[1] +'_' + splits[-1]
     main_folder = Path(results).parents[0]
     vtu_file = Path(main_folder/ ('mesh/' + seg_name + '.vtu'))
-    dd = dd.assemble_mesh().assemble_surface(mesh_file=vtu_file) 
+    dd = dd.assemble_mesh()#.assemble_surface(mesh_file=vtu_file) 
     start = time.time()
     shp, shpx = quad_shape() #shape functions evaluated at quadrature points 4x3 and 4x3x3
     print('Shape functions calculated!')
-    cells = dd.mesh.cells.reshape(-1,5)[:,1:5]
+    cells = dd.mesh.cells.reshape((-1,5))[:,1:5]
     if not Path('./neighbour_info_{}.h5'.format(case_name)).exists():
         #get neighbouring elements
         if not Path('part_mesh.vtm').exists():
