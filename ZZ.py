@@ -12,10 +12,10 @@ import multiprocess as mp
 import time
 import scipy
 import pandas as pd
-from numba import njit
+from numba import jit, njit
 
-nprocs = 80
-nprocs1 = 79
+nprocs = 15
+nprocs1 = 14
 
 class Dataset():
     """ Load BSL-specific data and common ops. 
@@ -91,7 +91,7 @@ class Dataset():
             mask = mesh.cell_data['CellEntityIds'] == 1
             self.surf = mesh.extract_cells(mask)
             self.surf = pv.PolyData(self.surf.points*(10**-3), faces=self.surf.cells)
-
+            self.surf.point_data['vtkOriginalPointIds'] = mesh.point_data['vtkOriginalPointIds'][mask]
         return self
 
 def partition_mesh(mesh, n_partitions, generate_global_id=False, as_composite=False): #not used
@@ -111,7 +111,7 @@ def partition_mesh(mesh, n_partitions, generate_global_id=False, as_composite=Fa
     if as_composite:
         return pv.merge(list(output), merge_points=False)
     return output
-
+'''
 def initpool(arr,arr1,arr2):
     global neigh0
     global g_pts_flat 
@@ -120,6 +120,7 @@ def initpool(arr,arr1,arr2):
     neigh0 = arr
     g_pts_flat = arr1
     invTJ_flat = arr2
+'''
 
 def cell_neighbors(elems, mesh, endx):
     nodes = elems[endx, :].flatten()
@@ -204,7 +205,7 @@ def jacobian(npts, shpx): #npts are the physical nodal coordinates of the cell 4
     J = np.zeros((4,3,3))
     invTJ = np.zeros((4,3,3)) #inverse transposed Jacobian at each quadrature point
     for q in range(4): #loop through quad points
-        J[q]=np.matmul(shpx,npts) #3refderivsx4nodes x 4nodesx3dirs = 3refdx x3physicaldx (Transposed Jacobian)
+        J[q]=shpx@npts #3refderivsx4nodes x 4nodesx3dirs = 3refdx x3physicaldx (Transposed Jacobian)
         invTJ[q,:,:] = np.linalg.inv(J[q]) #this is just the inverse Jacobian
     return invTJ #4quads x 3physdx x 3refdx
 
@@ -213,23 +214,20 @@ def compute_derivs_at_quads(u, node_pts, shpx):
     grad = np.zeros((4,3,3))
     #with linalg
     for q in range(4):
-        grad[q,:,:]=np.matmul(shpx,u[node_pts]) #3refderivsx4nodes 4nodesx3coords  = 3 refderivsx3 coords 
+        grad[q,:,:]=shpx@u[node_pts] #3refderivsx4nodes 4nodesx3coords  = 3 refderivsx3 coords 
     return grad #quad pointsx3 refderivsx3 coords
 
-@njit
 def compute_grads_quads(u, shpx, cells, quad_grads, invTJ_at_quads, x):
-    print('Computing derivatives at physical quadrature points')
+    #print('Computing derivatives at physical quadrature points')
     for c in range(len(cells)):
         ref_derivs_at_quads = compute_derivs_at_quads(u,cells[c],shpx)
         derivs_at_quads = np.zeros((4,3,3)) #(derivsxcoords of u)
         for j in range(4):
-            derivs_at_quads[j,:,:] = np.matmul(invTJ_at_quads[c,j,:,:],ref_derivs_at_quads[j,:,:]) #(3physdxx3refdx X 3refderivsx3coords x   = 3physical derivs inversex3coords
+            derivs_at_quads[j,:,:] = invTJ_at_quads[c,j,:,:]@ref_derivs_at_quads[j,:,:] #(3physdxx3refdx X 3refderivsx3coords x   = 3physical derivs inversex3coords
         quad_grads[c, :, :, :] = np.transpose(derivs_at_quads, axes=(0,2,1))
-        #if c==0:
-        #    print(quad_grads[c])
-        if c%100000==0 and x==0:
-            print('{}%'.format(round(100*c/len(cells))))
-@njit
+        #if c%100000==0 and x==0:
+        #    print('{}%'.format(round(100*c/len(cells))))
+            
 def least_squares(dd, cells,quad_grads, A_flat, P0, patches, patch_pts, P2, x1):
     #need array to store totals of gradients
     grad_totals=np.zeros((len(dd.mesh.points),9))
@@ -255,7 +253,7 @@ def least_squares(dd, cells,quad_grads, A_flat, P0, patches, patch_pts, P2, x1):
             grads_patch = quad_grads[patches[ci]] #list of gradients at each quad point in the patch (3 coordsx3derivs)
             grads = np.concatenate((quad_grads[ci].reshape(-1,9), grads_patch.reshape(-1,9)), axis=0) # include list of gradients at each quad point in cell quad_ptsx9
             #P[:,g]=[1,x,y,z]^T
-            b_fill = np.matmul(P0[ci],grads) #4monomialsxnpts x npts*9comps = 4monomialsx9 components
+            b_fill = P0[ci]@grads #4monomialsxnpts x npts*9comps = 4monomialsx9 components
             #Construct the system
             A = np.zeros((36,36)) #9componentsx4monomials **2
             A[0:4,0:4] = A[4:8,4:8]=A[8:12,8:12]=A[12:16,12:16]=A[16:20,16:20]=A[20:24,20:24]=A[24:28,24:28]=A[28:32,28:32]=A[32:36,32:36]=A_flat[ci*16:ci*16+16].reshape((4,4))
@@ -280,8 +278,8 @@ def least_squares(dd, cells,quad_grads, A_flat, P0, patches, patch_pts, P2, x1):
             grad_instances[patch_pts[ci]] += 1 #everytime we see this node, add one to the averaging denominator
         t11 = time.time()
         t12 += t11-t10
-        if c%100000==0 and x1==0:
-            print('{}%'.format(round(100*c/len(cells))))
+        #if c%100000==0 and x1==0:
+        #    print('{}%'.format(round(100*c/len(cells))))
     #print ('Allocating sparse matrix took {}s, loading matrices took {}s, least squares took {}s, and reconstructing gradients took {}s'.format(t3,t6,t9,t12))
     return grad_totals, grad_instances
 
@@ -307,14 +305,13 @@ def generate_wss_file(dd,grads,ts):
     J = grads.reshape((-1,3,3))
     S = 0.5 * (J + np.transpose(J, axes=(0,2,1)))
     n = dd.surf.compute_normals() 
-    wpoint_ids = dd.surf.point_arrays["vtkOriginalCellIds"]
+    wpoint_ids = dd.surf.point_data["vtkOriginalPointIds"]
     wstrain_rate=S[wpoint_ids] #wallpointsx3x3 array
     wshear_rate=-2 * np.matmul(wstrain_rate,n)*(1-np.sum(n*n, axis=1))
     mu=0.0035
     wss = mu*wshear_rate
     with h5py.File('{}_wss_{}.h5'.format(case_name, ts), 'w') as f:
         f.create_dataset(name='gradient', data=wss)
-
 
 def generate_q(grads, gradfile):
     J = grads.reshape((-1,3,3)) 
@@ -323,7 +320,6 @@ def generate_q(grads, gradfile):
     Q=0.5*(A**2 - S**2)
     gradfile.create_dataset(name='q_criterion', data=Q)
 
-@njit
 def compute_nodal_gradients(u_files, dd, shpx, x, invTJ_at_quads, A_flat, P0, patches, patch_pts, P2, print_wss, print_q):
     cells = dd.mesh.cells.reshape(-1,5)[:,1:5] #cells are preceeded by the # of verts 
     #loop through each u file:
@@ -370,8 +366,8 @@ if __name__=="__main__":
     results=sys.argv[1] #eg. case_043_low/results/
     case_name=sys.argv[2] #eg. case_043_low
     if len(sys.argv)>3:
-        print_wss = sys.argv[3]
-        print_q = sys.argv[4]
+        print_wss = eval(sys.argv[3])
+        print_q = eval(sys.argv[4])
     else:
         print_wss = False
         print_q = False
