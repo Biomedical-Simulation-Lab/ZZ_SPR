@@ -303,7 +303,8 @@ def get_ls_monomials(dd,neigh, pcells, g_pts, P0, patches, patch_pts, P2):
 def generate_wss_file(dd,grads,ts):
     J = grads.reshape((-1,3,3))
     S = 0.5 * (J + np.transpose(J, axes=(0,2,1)))
-    n = dd.surf.compute_normals() 
+    dd.surf=dd.surf.compute_normals()
+    n = dd.surf.point_data['Normals']
     wpoint_ids = dd.surf.point_data["vtkOriginalPointIds"]
     wstrain_rate=S[wpoint_ids] #wallpointsx3x3 array
     wshear_rate=-2 * np.matmul(wstrain_rate,n)*(1-np.sum(n*n, axis=1))
