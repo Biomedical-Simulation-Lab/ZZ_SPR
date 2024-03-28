@@ -307,7 +307,8 @@ def generate_wss_file(dd,grads,ts):
     n = dd.surf.point_data['Normals']
     wpoint_ids = dd.surf.point_data["vtkOriginalPointIds"]
     wstrain_rate=S[wpoint_ids] #wallpointsx3x3 array
-    wshear_rate=-2 * np.matmul(wstrain_rate,n)*(1-np.sum(n*n, axis=1))
+    for i in range(len(dd.surf.points)): #don't have enough memory to do this all in one :(
+        wshear_rate=-2 * wstrain_rate[i]@n[i].T*(1-np.sum(n[i]*n[i]))
     mu=0.0035
     wss = mu*wshear_rate
     with h5py.File('{}_wss_{}.h5'.format(case_name, ts), 'w') as f:
